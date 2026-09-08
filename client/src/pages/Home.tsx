@@ -6,11 +6,15 @@ import {
   Check,
   ChevronRight,
   Clock3,
+  Dices,
+  Eye,
   Headphones,
   Heart,
   Library,
+  Pencil,
   Play,
   Plus,
+  RefreshCw,
   Search,
   Sparkles,
   Star,
@@ -50,6 +54,13 @@ type SpellCheckState = {
   original: string;
   suggestions: string[];
 } | null;
+
+type QuizMode = "english" | "meaning" | "random";
+
+type QuizCard = {
+  entry: Entry;
+  prompt: "english" | "meaning";
+};
 
 const STORAGE_KEY = "english-echo-vault.entries";
 
@@ -199,6 +210,10 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All" | EntryKind | "Favorites">("All");
   const [spellCheck, setSpellCheck] = useState<SpellCheckState>(null);
+  const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
+  const [quizMode, setQuizMode] = useState<QuizMode>("english");
+  const [quizCard, setQuizCard] = useState<QuizCard | null>(null);
+  const [quizRevealed, setQuizRevealed] = useState(false);
 
   const persist = (nextEntries: Entry[]) => {
     setEntries(nextEntries);
@@ -289,6 +304,44 @@ export default function Home() {
         entry.id === id ? { ...entry, favorite: !entry.favorite } : entry,
       ),
     );
+  };
+
+  const startEditing = (entry: Entry) => {
+    setEditingEntry({ ...entry });
+  };
+
+  const saveEditedEntry = () => {
+    if (!editingEntry) return;
+    if (!editingEntry.text.trim()) {
+      toast.error("英文內容不能留白。");
+      return;
+    }
+    if (!editingEntry.meaning.trim()) {
+      toast.error("中文意思不能留白。");
+      return;
+    }
+
+    const normalizedEntry = {
+      ...editingEntry,
+      text: editingEntry.text.trim(),
+      meaning: editingEntry.meaning.trim(),
+      partOfSpeech: editingEntry.kind === "Phrase" ? "phrase" as PartOfSpeech : editingEntry.kind === "Sentence" ? "sentence" as PartOfSpeech : editingEntry.partOfSpeech,
+    };
+    persist(entries.map((entry) => entry.id === normalizedEntry.id ? normalizedEntry : entry));
+    setEditingEntry(null);
+    toast.success("已更新收藏內容");
+  };
+
+  const drawQuizCard = () => {
+    if (entries.length === 0) {
+      toast.error("收藏庫目前沒有可以抽背的內容。");
+      return;
+    }
+
+    const entry = entries[Math.floor(Math.random() * entries.length)];
+    const prompt = quizMode === "random" ? (Math.random() > 0.5 ? "english" : "meaning") : quizMode;
+    setQuizCard({ entry, prompt });
+    setQuizRevealed(false);
   };
 
   const filteredEntries = useMemo(() => {
@@ -420,6 +473,11 @@ export default function Home() {
 
         <section className="library-section">
           <div className="section-heading"><div><div className="section-kicker"><Type size={14} /> THE LIBRARY</div><h2>Words in residence</h2></div><div className="section-caption"><Clock3 size={15} /> 按最近加入排序</div></div>
+          <div className="practice-panel">
+            <div className="practice-copy"><div className="practice-icon"><Dices size={18} /></div><div><div className="practice-kicker">RANDOM RECALL</div><strong>隨機抽背</strong><span>選擇要先看到英文，或先看到中文意思</span></div></div>
+            <div className="practice-controls"><select aria-label="抽背提示內容" value={quizMode} onChange={(event) => setQuizMode(event.target.value as QuizMode)}><option value="english">先看英文</option><option value="meaning">先看中文意思</option><option value="random">隨機出題</option></select><button type="button" className="practice-button" onClick={drawQuizCard}><RefreshCw size={15} /> 抽一題</button></div>
+            {quizCard && <div className="quiz-card"><div className="quiz-label">{quizCard.prompt === "english" ? "看英文，回想中文意思" : "看中文意思，回想英文"}</div><div className="quiz-prompt">{quizCard.prompt === "english" ? quizCard.entry.text : quizCard.entry.meaning}</div>{quizRevealed ? <div className="quiz-answer"><span>答案</span>{quizCard.prompt === "english" ? quizCard.entry.meaning : quizCard.entry.text}</div> : <button type="button" className="reveal-button" onClick={() => setQuizRevealed(true)}><Eye size={15} /> 顯示答案</button>}<button type="button" className="next-quiz-button" onClick={drawQuizCard}>下一題 <ArrowUpRight size={14} /></button></div>}
+          </div>
           <div className="toolbar">
             <div className="search-wrap"><Search size={17} /><input aria-label="搜尋英文或中文意思" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search English or 中文意思..." />{query && <button type="button" className="clear-search" onClick={() => setQuery("")} aria-label="清除搜尋">×</button>}</div>
             <div className="filter-tabs" role="tablist" aria-label="收藏篩選">
@@ -436,7 +494,7 @@ export default function Home() {
                     <span className="entry-index">{String(index + 1).padStart(2, "0")}</span>
                     <span className="entry-content"><span className="entry-text">{entry.text}</span><span className="entry-meaning">{entry.meaning || "尚未添加中文意思"}</span><span className="entry-meta"><span className={`kind-label kind-${entry.kind.toLowerCase()}`}>{entry.kind}</span><span>·</span><span className="pos-label">{pos?.label ?? "其他"} · {pos?.short ?? "Other"}</span><span>·</span><span>{formatDate(entry.createdAt)}</span></span></span>
                   </button>
-                  <div className="entry-actions"><button type="button" className="icon-button play-button" onClick={() => speak(entry.text)} aria-label={`播放 ${entry.text}`}><Play size={15} fill="currentColor" /></button><button type="button" className={entry.favorite ? "icon-button favorite-button active" : "icon-button favorite-button"} onClick={() => toggleFavorite(entry.id)} aria-label={entry.favorite ? "取消最愛" : "加入最愛"}><Heart size={17} fill={entry.favorite ? "currentColor" : "none"} /></button><button type="button" className="icon-button delete-button" onClick={() => handleDelete(entry.id)} aria-label={`刪除 ${entry.text}`}><Trash2 size={16} /></button></div>
+                  <div className="entry-actions"><button type="button" className="icon-button play-button" onClick={() => speak(entry.text)} aria-label={`播放 ${entry.text}`}><Play size={15} fill="currentColor" /></button><button type="button" className="icon-button edit-button" onClick={() => startEditing(entry)} aria-label={`編輯 ${entry.text}`}><Pencil size={15} /></button><button type="button" className={entry.favorite ? "icon-button favorite-button active" : "icon-button favorite-button"} onClick={() => toggleFavorite(entry.id)} aria-label={entry.favorite ? "取消最愛" : "加入最愛"}><Heart size={17} fill={entry.favorite ? "currentColor" : "none"} /></button><button type="button" className="icon-button delete-button" onClick={() => handleDelete(entry.id)} aria-label={`刪除 ${entry.text}`}><Trash2 size={16} /></button></div>
                 </article>
               );
             })}
@@ -448,6 +506,8 @@ export default function Home() {
 
         <footer className="app-footer"><span>English Echo Vault</span><span>Built for small moments of fluency.</span></footer>
       </div>
+
+      {editingEntry && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setEditingEntry(null); }}><section className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-title"><button type="button" className="modal-close" onClick={() => setEditingEntry(null)} aria-label="關閉編輯"><X size={17} /></button><div className="spell-kicker">EDIT YOUR ENTRY</div><h2 id="edit-title">修改收藏內容</h2><p className="edit-subtitle">更新英文、詞性或中文意思，保存後會立即同步到收藏庫。</p><label className="edit-field"><span>英文內容</span><textarea value={editingEntry.text} onChange={(event) => setEditingEntry({ ...editingEntry, text: event.target.value })} rows={2} /></label><label className="edit-field"><span>內容類型</span><select value={editingEntry.kind} onChange={(event) => { const nextKind = event.target.value as EntryKind; setEditingEntry({ ...editingEntry, kind: nextKind, partOfSpeech: nextKind === "Phrase" ? "phrase" : nextKind === "Sentence" ? "sentence" : editingEntry.partOfSpeech === "phrase" || editingEntry.partOfSpeech === "sentence" ? "noun" : editingEntry.partOfSpeech }); }}>{kindOptions.map((option) => <option key={option} value={option}>{option === "Word" ? "單字 · Word" : option === "Phrase" ? "片語 · Phrase" : "句子 · Sentence"}</option>)}</select></label>{editingEntry.kind === "Word" && <label className="edit-field"><span>詞性</span><select value={editingEntry.partOfSpeech} onChange={(event) => setEditingEntry({ ...editingEntry, partOfSpeech: event.target.value as PartOfSpeech })}>{partOfSpeechOptions.filter((option) => option.value !== "phrase" && option.value !== "sentence").map((option) => <option value={option.value} key={option.value}>{option.label} · {option.short}</option>)}</select></label>}<label className="edit-field"><span>中文意思</span><textarea value={editingEntry.meaning} onChange={(event) => setEditingEntry({ ...editingEntry, meaning: event.target.value })} rows={2} /></label><div className="edit-actions"><button type="button" className="back-button" onClick={() => setEditingEntry(null)}>取消</button><button type="button" className="save-button" onClick={saveEditedEntry}>保存修改 <Check size={16} /></button></div></section></div>}
 
       {spellCheck && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setSpellCheck(null); }}><section className="spell-modal" role="dialog" aria-modal="true" aria-labelledby="spell-title"><button type="button" className="modal-close" onClick={() => setSpellCheck(null)} aria-label="關閉拼寫檢查"><X size={17} /></button><div className="spell-icon"><AlertTriangle size={20} /></div><div className="spell-kicker">SPELL CHECK</div><h2 id="spell-title">這個拼法看起來需要確認</h2><p>你輸入的是 <strong>{spellCheck.original}</strong>。請選擇正確英文後繼續填寫詞性與中文意思，或確認保留原文。</p><div className="suggestion-list">{spellCheck.suggestions.map((suggestion) => <button type="button" className="suggestion-button" key={suggestion} onClick={() => acceptSpellingAndContinue(suggestion)}><span><Check size={15} /> {suggestion}</span><ArrowUpRight size={15} /></button>)}</div><button type="button" className="keep-original" onClick={() => acceptSpellingAndContinue(spellCheck.original)}><span>不是拼錯，保留「{spellCheck.original}」</span><span>Keep as entered</span></button></section></div>}
     </main>
