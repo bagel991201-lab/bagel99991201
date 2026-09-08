@@ -219,6 +219,7 @@ export default function Home() {
   const [quizExpanded, setQuizExpanded] = useState(true);
   const [quizCount, setQuizCount] = useState(3);
   const [quizQuestionIndex, setQuizQuestionIndex] = useState(0);
+  const [wrongQuizCards, setWrongQuizCards] = useState<QuizCard[]>([]);
 
   const persist = (nextEntries: Entry[]) => {
     setEntries(nextEntries);
@@ -343,10 +344,12 @@ export default function Home() {
       return;
     }
 
+    const isRestarting = Boolean(quizCard && quizQuestionIndex >= quizCount);
     const entry = entries[Math.floor(Math.random() * entries.length)];
     const prompt = quizMode === "random" ? (Math.random() > 0.5 ? "english" : "meaning") : quizMode;
     setQuizCard({ entry, prompt });
     setQuizRevealed(false);
+    if (isRestarting) setWrongQuizCards([]);
     setQuizQuestionIndex((current) => current >= quizCount ? 1 : current + 1);
   };
 
@@ -355,6 +358,16 @@ export default function Home() {
     setQuizCard(null);
     setQuizRevealed(false);
     setQuizQuestionIndex(0);
+    setWrongQuizCards([]);
+  };
+
+  const markQuizResult = (correct: boolean) => {
+    if (!quizCard) return;
+    setQuizRevealed(true);
+    if (!correct) {
+      setWrongQuizCards((current) => current.some((card) => card.entry.id === quizCard.entry.id && card.prompt === quizCard.prompt) ? current : [...current, quizCard]);
+      toast("已加入本次錯題", { description: "你可以在抽背面板下方查看英文與中文意思。" });
+    }
   };
 
   const filteredEntries = useMemo(() => {
@@ -491,7 +504,7 @@ export default function Home() {
               <span className="practice-copy"><span className="practice-icon"><Dices size={18} /></span><span><span className="practice-kicker">RANDOM RECALL</span><strong>隨機抽背</strong><span>選擇題型與題數，按自己的節奏複習</span></span></span>
               <span className="practice-toggle">{quizExpanded ? "收合" : "展開"}{quizExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
             </button>
-            {quizExpanded && <div className="practice-body"><div className="practice-controls"><label>提示<select aria-label="抽背提示內容" value={quizMode} onChange={(event) => setQuizMode(event.target.value as QuizMode)}><option value="english">先看英文</option><option value="meaning">先看中文意思</option><option value="random">隨機出題</option></select></label><label>題數<select aria-label="抽背題數" value={quizCount} onChange={(event) => handleQuizCountChange(Number(event.target.value))}>{Array.from({ length: Math.max(1, Math.min(entries.length, 10)) }, (_, index) => index + 1).map((count) => <option value={count} key={count}>{count} 題</option>)}</select></label><button type="button" className="practice-button" onClick={drawQuizCard}><RefreshCw size={15} /> 開始抽背</button></div>{quizCard && <div className="quiz-card"><div className="quiz-progress">第 {quizQuestionIndex} / {quizCount} 題</div><div className="quiz-label">{quizCard.prompt === "english" ? "看英文，回想中文意思" : "看中文意思，回想英文"}</div><div className="quiz-prompt">{quizCard.prompt === "english" ? quizCard.entry.text : quizCard.entry.meaning}</div>{quizRevealed ? <div className="quiz-answer"><span>答案</span>{quizCard.prompt === "english" ? quizCard.entry.meaning : quizCard.entry.text}</div> : <button type="button" className="reveal-button" onClick={() => setQuizRevealed(true)}><Eye size={15} /> 顯示答案</button>}<button type="button" className="next-quiz-button" onClick={drawQuizCard}>{quizQuestionIndex >= quizCount ? "重新開始" : "下一題"} <ArrowUpRight size={14} /></button></div>}</div>}
+            {quizExpanded && <div className="practice-body"><div className="practice-controls"><label>提示<select aria-label="抽背提示內容" value={quizMode} onChange={(event) => setQuizMode(event.target.value as QuizMode)}><option value="english">先看英文</option><option value="meaning">先看中文意思</option><option value="random">隨機出題</option></select></label><label>題數<select aria-label="抽背題數" value={quizCount} onChange={(event) => handleQuizCountChange(Number(event.target.value))}>{Array.from({ length: Math.max(1, Math.min(entries.length, 10)) }, (_, index) => index + 1).map((count) => <option value={count} key={count}>{count} 題</option>)}</select></label><button type="button" className="practice-button" onClick={drawQuizCard}><RefreshCw size={15} /> 開始抽背</button></div>{quizCard && <div className="quiz-card"><div className="quiz-progress">第 {quizQuestionIndex} / {quizCount} 題</div><div className="quiz-label">{quizCard.prompt === "english" ? "看英文，回想中文意思" : "看中文意思，回想英文"}</div><div className="quiz-prompt">{quizCard.prompt === "english" ? quizCard.entry.text : quizCard.entry.meaning}</div>{quizRevealed ? <><div className="quiz-answer"><span>答案</span>{quizCard.prompt === "english" ? quizCard.entry.meaning : quizCard.entry.text}</div><div className="quiz-result-actions"><button type="button" className="quiz-result wrong" onClick={() => markQuizResult(false)}>答錯，加入錯題</button><button type="button" className="quiz-result right" onClick={() => markQuizResult(true)}>答對</button></div></> : <button type="button" className="reveal-button" onClick={() => setQuizRevealed(true)}><Eye size={15} /> 顯示答案</button>}<button type="button" className="next-quiz-button" onClick={drawQuizCard}>{quizQuestionIndex >= quizCount ? "重新開始" : "下一題"} <ArrowUpRight size={14} /></button></div>}{wrongQuizCards.length > 0 && <div className="wrong-quiz-list"><div className="wrong-list-heading"><span>本次錯題</span><strong>{wrongQuizCards.length} 題</strong></div>{wrongQuizCards.map((card) => <div className="wrong-quiz-item" key={`${card.entry.id}-${card.prompt}`}><span className="wrong-quiz-english">{card.entry.text}</span><span className="wrong-quiz-meaning">{card.entry.meaning}</span><button type="button" onClick={() => speak(card.entry.text)} aria-label={`播放 ${card.entry.text}`}><Play size={13} fill="currentColor" /></button></div>)}</div>}</div>}
           </div>
           <div className="toolbar">
             <div className="search-wrap"><Search size={17} /><input aria-label="搜尋英文或中文意思" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search English or 中文意思..." />{query && <button type="button" className="clear-search" onClick={() => setQuery("")} aria-label="清除搜尋">×</button>}</div>
