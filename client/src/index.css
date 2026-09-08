@@ -175,6 +175,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .quiz-label { color: #9b8464; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
 .quiz-progress { position: absolute; top: 15px; right: 16px; color: #8ba08d; font-family: 'DM Mono', monospace; font-size: 9px; }
 .quiz-prompt { margin-top: 7px; color: #2f5846; font-family: 'Instrument Serif', serif; font-size: 29px; }
+.quiz-answer-input { display: flex; gap: 7px; margin-top: 13px; }
+.quiz-answer-input input { flex: 1; min-width: 0; padding: 10px 11px; border: 1px solid #d9e3d6; border-radius: 8px; outline: none; background: #fbfcf7; color: #426354; font-size: 12px; }
+.quiz-answer-input input:focus { border-color: #86ad93; box-shadow: 0 0 0 3px rgba(134, 173, 147, .12); }
+.quiz-answer-input input:disabled { color: #7f9185; background: #f0f4ed; }
+.quiz-answer-input button { padding: 9px 12px; border: 0; border-radius: 8px; background: #356b55; color: #f4fbf1; font-size: 11px; font-weight: 700; }
+.quiz-answer-input button:hover { background: #245442; }
+.quiz-answer-input button:disabled { cursor: not-allowed; opacity: .5; }
+.quiz-match-result { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; padding: 6px 8px; border-radius: 7px; font-size: 10px; font-weight: 700; }
+.quiz-match-result.correct { color: #4e795c; background: #e8f2e5; }
+.quiz-match-result.incorrect { color: #a26556; background: #fbefea; }
 .quiz-answer { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e1e9de; color: #6c8275; font-size: 13px; }
 .quiz-answer span { margin-right: 8px; color: #a18460; font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; }
 .reveal-button { margin-top: 10px; background: #e8f0e4; color: #4c765b; }
@@ -294,6 +304,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
   .practice-button { flex: 0 0 auto; }
   .quiz-card { margin-top: 13px; }
   .quiz-prompt { font-size: 25px; }
+  .quiz-answer-input { align-items: stretch; flex-direction: column; }
+  .quiz-answer-input button { width: 100%; }
   .next-quiz-button { position: static; margin-top: 8px; padding-left: 0; }
   .quiz-result-actions { flex-wrap: wrap; }
   .wrong-quiz-item { align-items: flex-start; flex-wrap: wrap; }
