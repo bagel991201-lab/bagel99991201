@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowUpRight,
-  BookOpen,
+  Check,
   Clock3,
   Headphones,
   Heart,
@@ -15,18 +16,35 @@ import {
   Type,
   Volume2,
   Waves,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type EntryKind = "Word" | "Phrase" | "Sentence";
+type PartOfSpeech =
+  | "noun"
+  | "verb"
+  | "adjective"
+  | "adverb"
+  | "pronoun"
+  | "preposition"
+  | "conjunction"
+  | "interjection"
+  | "other";
 
 type Entry = {
   id: string;
   text: string;
   kind: EntryKind;
+  partOfSpeech: PartOfSpeech | null;
   createdAt: number;
   favorite: boolean;
 };
+
+type SpellCheckState = {
+  original: string;
+  suggestions: string[];
+} | null;
 
 const STORAGE_KEY = "english-echo-vault.entries";
 
@@ -35,6 +53,7 @@ const starterEntries: Entry[] = [
     id: "starter-serendipity",
     text: "serendipity",
     kind: "Word",
+    partOfSpeech: "noun",
     createdAt: Date.now() - 1000 * 60 * 38,
     favorite: true,
   },
@@ -42,6 +61,7 @@ const starterEntries: Entry[] = [
     id: "starter-page",
     text: "Turn the page.",
     kind: "Sentence",
+    partOfSpeech: null,
     createdAt: Date.now() - 1000 * 60 * 60 * 4,
     favorite: false,
   },
@@ -49,12 +69,30 @@ const starterEntries: Entry[] = [
     id: "starter-momentum",
     text: "build momentum",
     kind: "Phrase",
+    partOfSpeech: null,
     createdAt: Date.now() - 1000 * 60 * 60 * 23,
     favorite: false,
   },
 ];
 
 const kindOptions: EntryKind[] = ["Word", "Phrase", "Sentence"];
+const partOfSpeechOptions: { value: PartOfSpeech; label: string; short: string }[] = [
+  { value: "noun", label: "名詞", short: "Noun" },
+  { value: "verb", label: "動詞", short: "Verb" },
+  { value: "adjective", label: "形容詞", short: "Adj." },
+  { value: "adverb", label: "副詞", short: "Adv." },
+  { value: "pronoun", label: "代名詞", short: "Pron." },
+  { value: "preposition", label: "介系詞", short: "Prep." },
+  { value: "conjunction", label: "連接詞", short: "Conj." },
+  { value: "interjection", label: "感嘆詞", short: "Interj." },
+  { value: "other", label: "其他", short: "Other" },
+];
+
+const knownWords = new Set(
+  [
+    "a", "about", "again", "always", "and", "are", "as", "at", "beautiful", "because", "become", "book", "build", "calm", "can", "change", "choose", "collection", "confidence", "day", "dream", "echo", "English", "every", "focus", "for", "from", "good", "grow", "have", "hear", "hope", "how", "in", "is", "it", "keep", "kind", "learn", "library", "little", "listen", "momentum", "my", "new", "one", "page", "practice", "quiet", "remember", "save", "serendipity", "small", "speak", "step", "stay", "the", "this", "time", "to", "today", "turn", "use", "voice", "word", "with", "you", "your",
+  ].map((word) => word.toLowerCase()),
+);
 
 function readEntries(): Entry[] {
   if (typeof window === "undefined") return starterEntries;
@@ -62,8 +100,12 @@ function readEntries(): Entry[] {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (!saved) return starterEntries;
-    const parsed = JSON.parse(saved) as Entry[];
-    return Array.isArray(parsed) ? parsed : starterEntries;
+    const parsed = JSON.parse(saved) as Partial<Entry>[];
+    if (!Array.isArray(parsed)) return starterEntries;
+    return parsed.map((entry) => ({
+      ...entry,
+      partOfSpeech: entry.partOfSpeech ?? (entry.kind === "Word" ? "noun" : null),
+    })) as Entry[];
   } catch {
     return starterEntries;
   }
@@ -95,16 +137,64 @@ function speak(text: string) {
   window.speechSynthesis.speak(utterance);
 }
 
+function levenshtein(a: string, b: string) {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= a.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= b.length; column += 1) {
+      current[column] = Math.min(
+        current[column - 1] + 1,
+        previous[column] + 1,
+        previous[column - 1] + (a[row - 1] === b[column - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[b.length];
+}
+
+function findSpellingSuggestions(text: string) {
+  const normalized = text.trim().toLowerCase();
+  if (!/^[a-z]+$/i.test(normalized) || knownWords.has(normalized)) return [];
+
+  const ranked = Array.from(knownWords)
+    .map((word) => ({ word, distance: levenshtein(normalized, word) }))
+    .filter(({ word, distance }) => distance <= Math.max(2, Math.floor(normalized.length / 3)) && Math.abs(word.length - normalized.length) <= 3)
+    .sort((left, right) => left.distance - right.distance || left.word.localeCompare(right.word));
+
+  return ranked.slice(0, 4).map(({ word }) => word);
+}
+
 export default function Home() {
   const [entries, setEntries] = useState<Entry[]>(readEntries);
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<EntryKind>("Word");
+  const [partOfSpeech, setPartOfSpeech] = useState<PartOfSpeech>("noun");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All" | EntryKind | "Favorites">("All");
+  const [spellCheck, setSpellCheck] = useState<SpellCheckState>(null);
 
   const persist = (nextEntries: Entry[]) => {
     setEntries(nextEntries);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntries));
+  };
+
+  const saveEntry = (text: string) => {
+    const newEntry: Entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      text,
+      kind,
+      partOfSpeech: kind === "Word" ? partOfSpeech : null,
+      createdAt: Date.now(),
+      favorite: false,
+    };
+
+    persist([newEntry, ...entries]);
+    setDraft("");
+    setSpellCheck(null);
+    toast.success("已加入你的 Echo Vault", {
+      description: "點擊英文內容即可聽到發音。",
+    });
   };
 
   const handleSave = () => {
@@ -114,19 +204,18 @@ export default function Home() {
       return;
     }
 
-    const newEntry: Entry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      text,
-      kind,
-      createdAt: Date.now(),
-      favorite: false,
-    };
+    const suggestions = kind === "Word" ? findSpellingSuggestions(text) : [];
+    if (suggestions.length > 0) {
+      setSpellCheck({ original: text, suggestions });
+      return;
+    }
 
-    persist([newEntry, ...entries]);
-    setDraft("");
-    toast.success("已加入你的 Echo Vault", {
-      description: "點擊英文內容即可聽到發音。",
-    });
+    saveEntry(text);
+  };
+
+  const handleKindChange = (nextKind: EntryKind) => {
+    setKind(nextKind);
+    if (nextKind === "Word" && !partOfSpeech) setPartOfSpeech("noun");
   };
 
   const handleDelete = (id: string) => {
@@ -214,7 +303,7 @@ export default function Home() {
                     key={option}
                     type="button"
                     className={kind === option ? "kind-chip active" : "kind-chip"}
-                    onClick={() => setKind(option)}
+                    onClick={() => handleKindChange(option)}
                   >
                     {option}
                   </button>
@@ -224,6 +313,14 @@ export default function Home() {
                 Save entry <ArrowUpRight size={16} />
               </button>
             </div>
+            {kind === "Word" && (
+              <label className="pos-picker">
+                <span>詞性 <small>Part of speech</small></span>
+                <select value={partOfSpeech} onChange={(event) => setPartOfSpeech(event.target.value as PartOfSpeech)}>
+                  {partOfSpeechOptions.map((option) => <option value={option.value} key={option.value}>{option.label} · {option.short}</option>)}
+                </select>
+              </label>
+            )}
             <div className="composer-hint">⌘ / Ctrl + Enter 儲存</div>
           </div>
         </section>
@@ -277,27 +374,30 @@ export default function Home() {
           </div>
 
           <div className="entry-list">
-            {filteredEntries.map((entry, index) => (
-              <article className="entry-card" key={entry.id} style={{ "--entry-delay": `${index * 45}ms` } as React.CSSProperties}>
-                <button
-                  type="button"
-                  className="entry-copy"
-                  onClick={() => speak(entry.text)}
-                  aria-label={`播放 ${entry.text} 的英文發音`}
-                >
-                  <span className="entry-index">{String(index + 1).padStart(2, "0")}</span>
-                  <span className="entry-content">
-                    <span className="entry-text">{entry.text}</span>
-                    <span className="entry-meta"><span className={`kind-label kind-${entry.kind.toLowerCase()}`}>{entry.kind}</span><span>·</span><span>{formatDate(entry.createdAt)}</span></span>
-                  </span>
-                </button>
-                <div className="entry-actions">
-                  <button type="button" className="icon-button play-button" onClick={() => speak(entry.text)} aria-label={`播放 ${entry.text}`}><Play size={15} fill="currentColor" /></button>
-                  <button type="button" className={entry.favorite ? "icon-button favorite-button active" : "icon-button favorite-button"} onClick={() => toggleFavorite(entry.id)} aria-label={entry.favorite ? "取消最愛" : "加入最愛"}><Heart size={17} fill={entry.favorite ? "currentColor" : "none"} /></button>
-                  <button type="button" className="icon-button delete-button" onClick={() => handleDelete(entry.id)} aria-label={`刪除 ${entry.text}`}><Trash2 size={16} /></button>
-                </div>
-              </article>
-            ))}
+            {filteredEntries.map((entry, index) => {
+              const pos = entry.partOfSpeech ? partOfSpeechOptions.find((option) => option.value === entry.partOfSpeech) : null;
+              return (
+                <article className="entry-card" key={entry.id} style={{ "--entry-delay": `${index * 45}ms` } as React.CSSProperties}>
+                  <button
+                    type="button"
+                    className="entry-copy"
+                    onClick={() => speak(entry.text)}
+                    aria-label={`播放 ${entry.text} 的英文發音`}
+                  >
+                    <span className="entry-index">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="entry-content">
+                      <span className="entry-text">{entry.text}</span>
+                      <span className="entry-meta"><span className={`kind-label kind-${entry.kind.toLowerCase()}`}>{entry.kind}</span>{pos && <><span>·</span><span className="pos-label">{pos.label} · {pos.short}</span></>}<span>·</span><span>{formatDate(entry.createdAt)}</span></span>
+                    </span>
+                  </button>
+                  <div className="entry-actions">
+                    <button type="button" className="icon-button play-button" onClick={() => speak(entry.text)} aria-label={`播放 ${entry.text}`}><Play size={15} fill="currentColor" /></button>
+                    <button type="button" className={entry.favorite ? "icon-button favorite-button active" : "icon-button favorite-button"} onClick={() => toggleFavorite(entry.id)} aria-label={entry.favorite ? "取消最愛" : "加入最愛"}><Heart size={17} fill={entry.favorite ? "currentColor" : "none"} /></button>
+                    <button type="button" className="icon-button delete-button" onClick={() => handleDelete(entry.id)} aria-label={`刪除 ${entry.text}`}><Trash2 size={16} /></button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
 
           {filteredEntries.length === 0 && (
@@ -320,6 +420,28 @@ export default function Home() {
           <span>Built for small moments of fluency.</span>
         </footer>
       </div>
+
+      {spellCheck && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setSpellCheck(null); }}>
+          <section className="spell-modal" role="dialog" aria-modal="true" aria-labelledby="spell-title">
+            <button type="button" className="modal-close" onClick={() => setSpellCheck(null)} aria-label="關閉拼寫檢查"><X size={17} /></button>
+            <div className="spell-icon"><AlertTriangle size={20} /></div>
+            <div className="spell-kicker">SPELL CHECK</div>
+            <h2 id="spell-title">這個拼法看起來需要確認</h2>
+            <p>你輸入的是 <strong>{spellCheck.original}</strong>。請選擇你想保留的正確英文，或確認它是你要記住的原文。</p>
+            <div className="suggestion-list">
+              {spellCheck.suggestions.map((suggestion) => (
+                <button type="button" className="suggestion-button" key={suggestion} onClick={() => saveEntry(suggestion)}>
+                  <span><Check size={15} /> {suggestion}</span><ArrowUpRight size={15} />
+                </button>
+              ))}
+            </div>
+            <button type="button" className="keep-original" onClick={() => saveEntry(spellCheck.original)}>
+              <span>不是拼錯，保留「{spellCheck.original}」</span><span>Keep as entered</span>
+            </button>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
