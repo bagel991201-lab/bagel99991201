@@ -156,18 +156,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .section-heading h2 { margin: 10px 0 0; color: #2d473d; font-family: 'Instrument Serif', serif; font-size: 43px; font-weight: 400; letter-spacing: -.025em; }
 .section-caption { display: flex; align-items: center; gap: 7px; color: #9aa399; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .04em; }
 .practice-panel { position: relative; display: grid; grid-template-columns: 1.35fr auto; gap: 18px; margin-bottom: 26px; padding: 17px 18px; border: 1px solid #dce5d8; border-radius: 15px; background: linear-gradient(115deg, rgba(234, 242, 230, .9), rgba(249, 246, 235, .82)); box-shadow: 0 10px 28px rgba(71, 91, 69, .055); }
+.practice-panel.collapsed { display: block; padding: 0; }
+.practice-header { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 17px 18px; border: 0; background: transparent; color: inherit; text-align: left; }
 .practice-copy { display: flex; align-items: center; gap: 12px; }
 .practice-icon { display: grid; place-items: center; width: 37px; height: 37px; border-radius: 11px; background: #d9ebd8; color: #4d7b5f; }
 .practice-kicker { color: #a18460; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; }
-.practice-copy strong, .practice-copy span { display: block; }
-.practice-copy strong { margin-top: 3px; color: #365b4b; font-family: 'Instrument Serif', serif; font-size: 22px; font-weight: 400; }
-.practice-copy span { margin-top: 2px; color: #829187; font-size: 11px; }
-.practice-controls { display: flex; align-items: center; gap: 7px; }
+.practice-copy > span:last-child strong, .practice-copy > span:last-child > span { display: block; }
+.practice-copy > span:last-child strong { margin-top: 3px; color: #365b4b; font-family: 'Instrument Serif', serif; font-size: 22px; font-weight: 400; }
+.practice-copy > span:last-child > span:last-child { margin-top: 2px; color: #829187; font-size: 11px; }
+.practice-toggle { display: inline-flex; align-items: center; gap: 5px; color: #64806e; font-size: 11px; font-weight: 700; }
+.practice-body { padding: 0 18px 17px; }
+.practice-controls { display: flex; align-items: end; gap: 9px; }
+.practice-controls label { display: grid; gap: 5px; color: #829187; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
 .practice-controls select { padding: 9px 10px; border: 1px solid #d3dfd1; border-radius: 8px; outline: none; background: rgba(255, 255, 251, .76); color: #4d6f59; font-size: 11px; }
 .practice-button, .reveal-button, .next-quiz-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 11px; border: 0; border-radius: 8px; background: #356b55; color: #f4fbf1; font-size: 11px; font-weight: 700; }
 .practice-button:hover, .reveal-button:hover, .next-quiz-button:hover { background: #245442; }
 .quiz-card { grid-column: 1 / -1; position: relative; padding: 16px 17px 14px; border: 1px solid #d8e4d5; border-radius: 12px; background: rgba(255, 255, 251, .72); }
 .quiz-label { color: #9b8464; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
+.quiz-progress { position: absolute; top: 15px; right: 16px; color: #8ba08d; font-family: 'DM Mono', monospace; font-size: 9px; }
 .quiz-prompt { margin-top: 7px; color: #2f5846; font-family: 'Instrument Serif', serif; font-size: 29px; }
 .quiz-answer { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e1e9de; color: #6c8275; font-size: 13px; }
 .quiz-answer span { margin-right: 8px; color: #a18460; font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; }
@@ -267,7 +273,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
   .english-review button { padding-left: 0; }
   .summary-english { max-width: 66%; }
   .practice-panel { display: block; }
-  .practice-controls { margin-top: 13px; }
+  .practice-body { padding: 0 12px 13px; }
+  .practice-controls { align-items: stretch; flex-wrap: wrap; margin-top: 0; }
+  .practice-controls label { flex: 1 1 42%; }
   .practice-controls select { flex: 1; min-width: 0; }
   .practice-button { flex: 0 0 auto; }
   .quiz-card { margin-top: 13px; }
