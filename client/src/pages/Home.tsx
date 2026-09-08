@@ -32,6 +32,8 @@ type PartOfSpeech =
   | "preposition"
   | "conjunction"
   | "interjection"
+  | "phrase"
+  | "sentence"
   | "other";
 
 type Entry = {
@@ -74,7 +76,7 @@ const starterEntries: Entry[] = [
     id: "starter-momentum",
     text: "build momentum",
     kind: "Phrase",
-    partOfSpeech: "verb",
+    partOfSpeech: "phrase",
     meaning: "建立動能、累積氣勢",
     createdAt: Date.now() - 1000 * 60 * 60 * 23,
     favorite: false,
@@ -91,6 +93,8 @@ const partOfSpeechOptions: { value: PartOfSpeech; label: string; short: string }
   { value: "preposition", label: "介系詞", short: "Prep." },
   { value: "conjunction", label: "連接詞", short: "Conj." },
   { value: "interjection", label: "感嘆詞", short: "Interj." },
+  { value: "phrase", label: "片語", short: "Phrase" },
+  { value: "sentence", label: "句子", short: "Sentence" },
   { value: "other", label: "其他", short: "Other" },
 ];
 
@@ -110,7 +114,7 @@ function readEntries(): Entry[] {
     if (!Array.isArray(parsed)) return starterEntries;
     return parsed.map((entry) => ({
       ...entry,
-      partOfSpeech: entry.partOfSpeech ?? (entry.kind === "Word" ? "noun" : "other"),
+      partOfSpeech: entry.kind === "Phrase" ? "phrase" : entry.kind === "Sentence" ? "sentence" : entry.partOfSpeech ?? "noun",
       meaning: entry.meaning ?? "",
     })) as Entry[];
   } catch {
@@ -189,7 +193,7 @@ export default function Home() {
   const [entries, setEntries] = useState<Entry[]>(readEntries);
   const [draft, setDraft] = useState("");
   const [meaning, setMeaning] = useState("");
-  const [kind, setKind] = useState<EntryKind>("Word");
+  const [kind, setKind] = useState<EntryKind | null>(null);
   const [partOfSpeech, setPartOfSpeech] = useState<PartOfSpeech>("noun");
   const [composerStep, setComposerStep] = useState<1 | 2 | 3>(1);
   const [query, setQuery] = useState("");
@@ -204,6 +208,8 @@ export default function Home() {
   const resetComposer = () => {
     setDraft("");
     setMeaning("");
+    setKind(null);
+    setPartOfSpeech("noun");
     setComposerStep(1);
   };
 
@@ -211,8 +217,8 @@ export default function Home() {
     const newEntry: Entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       text,
-      kind,
-      partOfSpeech,
+      kind: kind ?? "Word",
+      partOfSpeech: kind === "Phrase" ? "phrase" : kind === "Sentence" ? "sentence" : partOfSpeech,
       meaning: chineseMeaning.trim(),
       createdAt: Date.now(),
       favorite: false,
@@ -233,19 +239,24 @@ export default function Home() {
       return;
     }
 
+    if (!kind) {
+      toast.error("請先選擇這是單字、片語或句子。");
+      return;
+    }
+
     const suggestions = kind === "Word" ? findSpellingSuggestions(text) : [];
     if (suggestions.length > 0) {
       setSpellCheck({ original: text, suggestions });
       return;
     }
 
-    setComposerStep(2);
+    setComposerStep(kind === "Phrase" ? 3 : 2);
   };
 
   const acceptSpellingAndContinue = (text: string) => {
     setDraft(text);
     setSpellCheck(null);
-    setComposerStep(2);
+    setComposerStep(kind === "Phrase" ? 3 : 2);
   };
 
   const continueToMeaning = () => {
@@ -262,6 +273,9 @@ export default function Home() {
 
   const handleKindChange = (nextKind: EntryKind) => {
     setKind(nextKind);
+    if (nextKind === "Phrase") setPartOfSpeech("phrase");
+    if (nextKind === "Sentence") setPartOfSpeech("sentence");
+    if (nextKind === "Word" && (partOfSpeech === "phrase" || partOfSpeech === "sentence")) setPartOfSpeech("noun");
   };
 
   const handleDelete = (id: string) => {
@@ -283,9 +297,10 @@ export default function Home() {
     return entries.filter((entry) => {
       const matchesEnglish = entry.text.toLowerCase().includes(normalizedQuery);
       const matchesMeaning = meaningMatches(entry.meaning, normalizedQuery);
+      const meaningSearch = Boolean(normalizedQuery) && !matchesEnglish && matchesMeaning;
       const matchesFilter =
         filter === "All" ||
-        (filter === "Favorites" ? entry.favorite : entry.kind === filter);
+        (filter === "Favorites" ? entry.favorite : meaningSearch || entry.kind === filter);
       return (matchesEnglish || matchesMeaning) && matchesFilter;
     });
   }, [entries, filter, query]);
@@ -323,7 +338,7 @@ export default function Home() {
           <div className="composer-card">
             <div className="card-kicker"><Plus size={15} /> ADD TO YOUR VAULT</div>
             <div className="step-progress" aria-label={`新增步驟 ${composerStep} / 3`}>
-              {["英文", "詞性", "中文意思"].map((label, index) => {
+              {["類型", "英文", kind === "Phrase" ? "中文意思" : "詞性／中文"].map((label, index) => {
                 const step = (index + 1) as 1 | 2 | 3;
                 return (
                   <div className={composerStep === step ? "step-item active" : composerStep > step ? "step-item done" : "step-item"} key={label}>
@@ -336,7 +351,13 @@ export default function Home() {
 
             {composerStep === 1 && (
               <div className="composer-stage">
-                <label htmlFor="english-entry" className="composer-label">先輸入你想記住的英文</label>
+                <div className="kind-question">01 · 先選擇要記錄的類型</div>
+                <div className="kind-picker kind-picker-large" role="group" aria-label="內容類型">
+                  {kindOptions.map((option) => (
+                    <button key={option} type="button" className={kind === option ? "kind-chip active" : "kind-chip"} onClick={() => handleKindChange(option)}>{option === "Word" ? "單字 · Word" : option === "Phrase" ? "片語 · Phrase" : "句子 · Sentence"}</button>
+                  ))}
+                </div>
+                <label htmlFor="english-entry" className="composer-label">再輸入你想記住的英文</label>
                 <textarea
                   id="english-entry"
                   value={draft}
@@ -347,14 +368,7 @@ export default function Home() {
                   placeholder="e.g. take it one step at a time"
                   rows={3}
                 />
-                <div className="composer-footer">
-                  <div className="kind-picker" role="group" aria-label="內容類型">
-                    {kindOptions.map((option) => (
-                      <button key={option} type="button" className={kind === option ? "kind-chip active" : "kind-chip"} onClick={() => handleKindChange(option)}>{option}</button>
-                    ))}
-                  </div>
-                  <button type="button" className="save-button" onClick={continueToPartOfSpeech}>Next step <ArrowUpRight size={16} /></button>
-                </div>
+                <div className="composer-footer composer-footer-next"><span className="type-hint">{kind ? (kind === "Phrase" ? "片語會自動標記為 Phrase" : kind === "Sentence" ? "句子會自動標記為 Sentence" : "單字下一步選擇詞性") : "請先選擇類型"}</span><button type="button" className="save-button" onClick={continueToPartOfSpeech} disabled={!kind}>Next step <ArrowUpRight size={16} /></button></div>
               </div>
             )}
 
