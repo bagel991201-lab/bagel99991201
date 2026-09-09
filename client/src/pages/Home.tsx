@@ -1,4 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { startLogin } from "@/const";
+import { trpc } from "@/lib/trpc";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -213,6 +216,20 @@ function quizAnswersMatch(answer: string, expected: string, prompt: "english" | 
 }
 
 export default function Home() {
+  // The useAuth hook provides authentication state.
+  // To implement login/logout, call logout(), or start login from an event
+  // handler: onClick={() => startLogin()} (imported from "@/const"). Never call
+  // startLogin() during render (no href={startLogin()}) — it mints a one-time
+  // nonce cookie and must run only at the moment of navigation.
+  const { user, loading, isAuthenticated, logout } = useAuth();
+  const vocabularyQuery = trpc.vocabulary.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+    refetchOnWindowFocus: true,
+  });
+  const replaceVocabulary = trpc.vocabulary.replaceAll.useMutation();
+  const hasHydratedCloud = useRef(false);
+
   const [entries, setEntries] = useState<Entry[]>(readEntries);
   const [draft, setDraft] = useState("");
   const [meaning, setMeaning] = useState("");
@@ -236,8 +253,34 @@ export default function Home() {
 
   const persist = (nextEntries: Entry[]) => {
     setEntries(nextEntries);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntries));
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntries));
+    }
+    if (isAuthenticated) {
+      replaceVocabulary.mutate({ entries: nextEntries });
+    }
   };
+
+  useEffect(() => {
+    if (!isAuthenticated || vocabularyQuery.isLoading || vocabularyQuery.data === undefined || hasHydratedCloud.current) return;
+    hasHydratedCloud.current = true;
+    const cloudEntries = vocabularyQuery.data.map((entry) => ({
+      id: entry.id,
+      text: entry.text,
+      kind: entry.kind as EntryKind,
+      partOfSpeech: entry.partOfSpeech as PartOfSpeech,
+      meaning: entry.meaning,
+      createdAt: entry.createdAt,
+      favorite: entry.favorite,
+    }));
+    if (cloudEntries.length > 0) {
+      setEntries(cloudEntries);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudEntries));
+      return;
+    }
+    // First login migration: preserve the user's existing browser collection.
+    if (entries.length > 0) replaceVocabulary.mutate({ entries });
+  }, [entries, isAuthenticated, replaceVocabulary, vocabularyQuery.data, vocabularyQuery.isLoading]);
 
   const resetComposer = () => {
     setDraft("");
@@ -441,7 +484,9 @@ export default function Home() {
               <div className="brand-tagline">words worth hearing again</div>
             </div>
           </div>
-          <div className="local-pill"><span className="status-dot" />Saved locally</div>
+          <div className="account-area">
+            {loading ? <span className="local-pill"><span className="status-dot" />Checking account…</span> : isAuthenticated ? <><span className="local-pill"><span className="status-dot synced" />{user?.name ? `${user.name} · Synced` : "Cloud synced"}</span><button type="button" className="account-button" onClick={() => void logout()}>登出</button></> : <><span className="local-pill"><span className="status-dot" />Saved locally</span><button type="button" className="account-button primary" onClick={() => startLogin()}>登入以同步</button></>}
+          </div>
         </header>
 
         <section className="hero-grid">

@@ -81,8 +81,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; color: #eff7ed; background: #2a5b4d; box-shadow: 0 7px 18px rgba(42, 91, 77, .19); }
 .brand-name { font-size: 15px; font-weight: 700; letter-spacing: -.02em; }
 .brand-tagline { color: #88938b; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; margin-top: 2px; }
+.account-area { display: flex; align-items: center; gap: 12px; }
 .local-pill { display: flex; gap: 8px; align-items: center; color: #68766c; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #8eb48e; box-shadow: 0 0 0 4px rgba(142, 180, 142, .16); }
+.status-dot.synced { background: #4c9171; box-shadow: 0 0 0 4px rgba(76, 145, 113, .16); }
+.account-button { padding: 7px 10px; border: 1px solid #d5dfd2; border-radius: 8px; background: rgba(255, 255, 250, .62); color: #54715f; font-size: 11px; font-weight: 700; transition: background .16s ease, transform .16s ease; }
+.account-button:hover { background: #edf4e9; }
+.account-button:active { transform: scale(.97); }
+.account-button.primary { border-color: #2a5b4d; background: #2a5b4d; color: #f4fbf1; }
 
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) 480px; gap: 80px; align-items: center; padding: 78px 0 64px; }
 .hero-copy { padding-left: 10px; }
@@ -256,7 +262,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
   .stats-strip { grid-template-columns: 1.6fr repeat(4, 1fr); padding-left: 17px; padding-right: 17px; }
   .stat-item { padding-left: 15px; }
 }
-@media (max-width: 700px) {
+@media (max-width: 720px) {
   .app-container { width: min(100% - 30px, 560px); }
   .topbar { height: 75px; }
   .local-pill { font-size: 0; }
