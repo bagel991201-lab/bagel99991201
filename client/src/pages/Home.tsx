@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { matchesSelectedFilters } from "./filter.logic";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -68,6 +69,7 @@ type QuizCard = {
 };
 
 const STORAGE_KEY = "english-echo-vault.entries";
+const MAX_QUIZ_COUNT = 50;
 
 const starterEntries: Entry[] = [
   {
@@ -238,6 +240,7 @@ export default function Home() {
   const [composerStep, setComposerStep] = useState<1 | 2 | 3>(1);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All" | EntryKind | "Favorites">("All");
+  const [searchFilters, setSearchFilters] = useState<PartOfSpeech[]>([]);
   const [spellCheck, setSpellCheck] = useState<SpellCheckState>(null);
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [quizMode, setQuizMode] = useState<QuizMode>("english");
@@ -327,17 +330,21 @@ export default function Home() {
       return;
     }
 
-    setComposerStep(kind === "Phrase" ? 3 : 2);
+    setComposerStep(kind === "Word" ? 2 : 3);
   };
 
   const acceptSpellingAndContinue = (text: string) => {
     setDraft(text);
     setSpellCheck(null);
-    setComposerStep(kind === "Phrase" ? 3 : 2);
+    setComposerStep(kind === "Word" ? 2 : 3);
   };
 
   const continueToMeaning = () => {
     setComposerStep(3);
+  };
+
+  const toggleSearchFilter = (value: PartOfSpeech) => {
+    setSearchFilters((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
   };
 
   const handleFinalSave = () => {
@@ -457,13 +464,13 @@ export default function Home() {
     return entries.filter((entry) => {
       const matchesEnglish = entry.text.toLowerCase().includes(normalizedQuery);
       const matchesMeaning = meaningMatches(entry.meaning, normalizedQuery);
-      const meaningSearch = Boolean(normalizedQuery) && !matchesEnglish && matchesMeaning;
-      const matchesFilter =
+      const matchesTabFilter =
         filter === "All" ||
-        (filter === "Favorites" ? entry.favorite : meaningSearch || entry.kind === filter);
-      return (matchesEnglish || matchesMeaning) && matchesFilter;
+        (filter === "Favorites" ? entry.favorite : entry.kind === filter);
+      const matchesSearchFilter = matchesSelectedFilters(entry.partOfSpeech, searchFilters);
+      return (matchesEnglish || matchesMeaning) && matchesTabFilter && matchesSearchFilter;
     });
-  }, [entries, filter, query]);
+  }, [entries, filter, query, searchFilters]);
 
   const wordCount = entries.filter((entry) => entry.kind === "Word").length;
   const phraseCount = entries.filter((entry) => entry.kind !== "Word").length;
@@ -500,7 +507,7 @@ export default function Home() {
           <div className="composer-card">
             <div className="card-kicker"><Plus size={15} /> ADD TO YOUR VAULT</div>
             <div className="step-progress" aria-label={`新增步驟 ${composerStep} / 3`}>
-              {["類型", "英文", kind === "Phrase" ? "中文意思" : "詞性／中文"].map((label, index) => {
+              {["類型", "英文", kind !== "Word" ? "中文意思" : "詞性／中文"].map((label, index) => {
                 const step = (index + 1) as 1 | 2 | 3;
                 return (
                   <div className={composerStep === step ? "step-item active" : composerStep > step ? "step-item done" : "step-item"} key={label}>
@@ -552,7 +559,7 @@ export default function Home() {
             {composerStep === 3 && (
               <div className="composer-stage">
                 <div className="stage-label">STEP 03 · 中文意思</div>
-                <div className="entry-summary"><span className="summary-english">{draft}</span><span className="summary-pos">{selectedPartOfSpeech?.label} · {selectedPartOfSpeech?.short}</span></div>
+                <div className="entry-summary"><span className="summary-english">{draft}</span><span className="summary-pos">{kind === "Phrase" ? "片語 · Phrase" : kind === "Sentence" ? "句子 · Sentence" : `${selectedPartOfSpeech?.label} · ${selectedPartOfSpeech?.short}`}</span></div>
                 <label htmlFor="meaning-entry" className="composer-label">最後，添加中文意思</label>
                 <textarea
                   id="meaning-entry"
@@ -565,7 +572,7 @@ export default function Home() {
                   placeholder="例如：意外發現的美好事物"
                   rows={3}
                 />
-                <div className="step-actions"><button type="button" className="back-button" onClick={() => setComposerStep(2)}><ArrowLeft size={15} /> Back</button><button type="button" className="save-button" onClick={handleFinalSave}>Save all <Check size={16} /></button></div>
+                <div className="step-actions"><button type="button" className="back-button" onClick={() => setComposerStep(kind === "Word" ? 2 : 1)}><ArrowLeft size={15} /> Back</button><button type="button" className="save-button" onClick={handleFinalSave}>Save all <Check size={16} /></button></div>
               </div>
             )}
             <div className="composer-hint">⌘ / Ctrl + Enter 可前進或保存</div>
@@ -587,7 +594,7 @@ export default function Home() {
               <span className="practice-copy"><span className="practice-icon"><Dices size={18} /></span><span><span className="practice-kicker">RANDOM RECALL</span><strong>隨機抽背</strong><span>選擇題型與題數，按自己的節奏複習</span></span></span>
               <span className="practice-toggle">{quizExpanded ? "收合" : "展開"}{quizExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
             </button>
-            {quizExpanded && <div className="practice-body"><div className="practice-controls"><label>提示<select aria-label="抽背提示內容" value={quizMode} onChange={(event) => setQuizMode(event.target.value as QuizMode)}><option value="english">先看英文</option><option value="meaning">先看中文意思</option><option value="random">隨機出題</option></select></label><label>題數<select aria-label="抽背題數" value={quizCount} onChange={(event) => handleQuizCountChange(Number(event.target.value))}>{Array.from({ length: Math.max(1, Math.min(entries.length, 10)) }, (_, index) => index + 1).map((count) => <option value={count} key={count}>{count} 題</option>)}</select></label><button type="button" className="practice-button" onClick={drawQuizCard}><RefreshCw size={15} /> 開始抽背</button></div>{quizCard && <div className="quiz-card"><div className="quiz-progress">第 {quizQuestionIndex} / {quizCount} 題</div><div className="quiz-label">{quizCard.prompt === "english" ? "看英文，回想中文意思" : "看中文意思，回想英文"}</div><div className="quiz-prompt">{quizCard.prompt === "english" ? quizCard.entry.text : quizCard.entry.meaning}</div><div className="quiz-answer-input"><input aria-label="輸入抽背答案" value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitQuizAnswer(); }} placeholder={quizCard.prompt === "english" ? "輸入中文意思..." : "輸入英文答案..."} disabled={quizAnswerSubmitted} /><button type="button" onClick={submitQuizAnswer} disabled={quizAnswerSubmitted}>送出答案</button></div>{quizAnswerSubmitted && <div className={quizAnswerCorrect ? "quiz-match-result correct" : "quiz-match-result incorrect"}><Check size={15} /> {quizAnswerCorrect ? "意思相同或相似，答對了" : "意思不相符，已加入錯題"}</div>}{quizRevealed ? <><div className="quiz-answer"><span>參考答案</span>{quizCard.prompt === "english" ? quizCard.entry.meaning : quizCard.entry.text}</div>{!quizAnswerSubmitted && <div className="quiz-result-actions"><button type="button" className="quiz-result wrong" onClick={() => markQuizResult(false)}>答錯，加入錯題</button><button type="button" className="quiz-result right" onClick={() => markQuizResult(true)}>答對</button></div>}</> : <button type="button" className="reveal-button" onClick={() => setQuizRevealed(true)}><Eye size={15} /> 顯示答案</button>}<button type="button" className="next-quiz-button" onClick={drawQuizCard}>{quizQuestionIndex >= quizCount ? "重新開始" : "下一題"} <ArrowUpRight size={14} /></button></div>}{wrongQuizCards.length > 0 && <div className="wrong-quiz-list"><div className="wrong-list-heading"><span>本次錯題</span><strong>{wrongQuizCards.length} 題</strong></div>{wrongQuizCards.map((card) => <div className="wrong-quiz-item" key={`${card.entry.id}-${card.prompt}`}><span className="wrong-quiz-english">{card.entry.text}</span><span className="wrong-quiz-meaning">{card.entry.meaning}</span><button type="button" onClick={() => speak(card.entry.text)} aria-label={`播放 ${card.entry.text}`}><Play size={13} fill="currentColor" /></button></div>)}</div>}</div>}
+            {quizExpanded && <div className="practice-body"><div className="practice-controls"><label>提示<select aria-label="抽背提示內容" value={quizMode} onChange={(event) => setQuizMode(event.target.value as QuizMode)}><option value="english">先看英文</option><option value="meaning">先看中文意思</option><option value="random">隨機出題</option></select></label><label>題數<select aria-label="抽背題數" value={quizCount} onChange={(event) => handleQuizCountChange(Number(event.target.value))}>{Array.from({ length: Math.max(1, Math.min(entries.length, MAX_QUIZ_COUNT)) }, (_, index) => index + 1).map((count) => <option value={count} key={count}>{count} 題</option>)}</select></label><button type="button" className="practice-button" onClick={drawQuizCard}><RefreshCw size={15} /> 開始抽背</button></div>{quizCard && <div className="quiz-card"><div className="quiz-progress">第 {quizQuestionIndex} / {quizCount} 題</div><div className="quiz-label">{quizCard.prompt === "english" ? "看英文，回想中文意思" : "看中文意思，回想英文"}</div><div className="quiz-prompt">{quizCard.prompt === "english" ? quizCard.entry.text : quizCard.entry.meaning}</div><div className="quiz-answer-input"><input aria-label="輸入抽背答案" value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitQuizAnswer(); }} placeholder={quizCard.prompt === "english" ? "輸入中文意思..." : "輸入英文答案..."} disabled={quizAnswerSubmitted} /><button type="button" onClick={submitQuizAnswer} disabled={quizAnswerSubmitted}>送出答案</button></div>{quizAnswerSubmitted && <div className={quizAnswerCorrect ? "quiz-match-result correct" : "quiz-match-result incorrect"}><Check size={15} /> {quizAnswerCorrect ? "意思相同或相似，答對了" : "意思不相符，已加入錯題"}</div>}{quizRevealed ? <><div className="quiz-answer"><span>參考答案</span>{quizCard.prompt === "english" ? quizCard.entry.meaning : quizCard.entry.text}</div>{!quizAnswerSubmitted && <div className="quiz-result-actions"><button type="button" className="quiz-result wrong" onClick={() => markQuizResult(false)}>答錯，加入錯題</button><button type="button" className="quiz-result right" onClick={() => markQuizResult(true)}>答對</button></div>}</> : <button type="button" className="reveal-button" onClick={() => setQuizRevealed(true)}><Eye size={15} /> 顯示答案</button>}<button type="button" className="next-quiz-button" onClick={drawQuizCard}>{quizQuestionIndex >= quizCount ? "重新開始" : "下一題"} <ArrowUpRight size={14} /></button></div>}{wrongQuizCards.length > 0 && <div className="wrong-quiz-list"><div className="wrong-list-heading"><span>本次錯題</span><strong>{wrongQuizCards.length} 題</strong></div>{wrongQuizCards.map((card) => <div className="wrong-quiz-item" key={`${card.entry.id}-${card.prompt}`}><span className="wrong-quiz-english">{card.entry.text}</span><span className="wrong-quiz-meaning">{card.entry.meaning}</span><button type="button" onClick={() => speak(card.entry.text)} aria-label={`播放 ${card.entry.text}`}><Play size={13} fill="currentColor" /></button></div>)}</div>}</div>}
           </div>
           <div className="toolbar">
             <div className="search-wrap"><Search size={17} /><input aria-label="搜尋英文或中文意思" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search English or 中文意思..." />{query && <button type="button" className="clear-search" onClick={() => setQuery("")} aria-label="清除搜尋">×</button>}</div>
@@ -595,6 +602,13 @@ export default function Home() {
               {["All", "Word", "Phrase", "Sentence", "Favorites"].map((option) => <button key={option} type="button" role="tab" aria-selected={filter === option} className={filter === option ? "filter-tab active" : "filter-tab"} onClick={() => setFilter(option as "All" | EntryKind | "Favorites")}>{option === "Favorites" && <Star size={13} fill="currentColor" />}{option}</button>)}
             </div>
           </div>
+          <details className="search-filter-details">
+            <summary>進階篩選 {searchFilters.length > 0 ? `· 已選 ${searchFilters.length} 項` : "· 可多選詞性／片語／句子"}</summary>
+            <div className="search-filter-options">
+              {partOfSpeechOptions.map((option) => <label key={option.value} className={searchFilters.includes(option.value) ? "search-filter-option selected" : "search-filter-option"}><input type="checkbox" checked={searchFilters.includes(option.value)} onChange={() => toggleSearchFilter(option.value)} /><span>{option.label}</span><small>{option.short}</small></label>)}
+              {searchFilters.length > 0 && <button type="button" className="clear-filter-button" onClick={() => setSearchFilters([])}>清除選擇</button>}
+            </div>
+          </details>
 
           <div className="entry-list">
             {filteredEntries.map((entry, index) => {
