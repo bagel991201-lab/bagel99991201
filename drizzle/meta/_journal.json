@@ -8,6 +8,13 @@
       "when": 1788878269161,
       "tag": "0000_kind_tiger_shark",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1789030770516,
+      "tag": "0001_premium_mandroid",
+      "breakpoints": true
     }
   ]
 }

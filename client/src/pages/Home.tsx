@@ -54,7 +54,10 @@ type Entry = {
   meaning: string;
   createdAt: number;
   favorite: boolean;
+  groupId?: string | null;
 };
+
+type VocabularyGroup = { id: string; name: string; note: string; createdAt: number };
 
 type SpellCheckState = {
   original: string;
@@ -69,6 +72,7 @@ type QuizCard = {
 };
 
 const STORAGE_KEY = "english-echo-vault.entries";
+const GROUPS_STORAGE_KEY = "english-echo-vault.groups";
 const MAX_QUIZ_COUNT = 50;
 
 const starterEntries: Entry[] = [
@@ -138,6 +142,14 @@ function readEntries(): Entry[] {
   } catch {
     return starterEntries;
   }
+}
+
+function readGroups(): VocabularyGroup[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(GROUPS_STORAGE_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
 }
 
 function formatDate(timestamp: number) {
@@ -233,6 +245,12 @@ export default function Home() {
   const hasHydratedCloud = useRef(false);
 
   const [entries, setEntries] = useState<Entry[]>(readEntries);
+  const [groups, setGroups] = useState<VocabularyGroup[]>(readGroups);
+  const [groupQuery, setGroupQuery] = useState("");
+  const [groupName, setGroupName] = useState("");
+  const [groupNote, setGroupNote] = useState("");
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [groupEditorOpen, setGroupEditorOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [meaning, setMeaning] = useState("");
   const [kind, setKind] = useState<EntryKind | null>(null);
@@ -254,20 +272,20 @@ export default function Home() {
   const [quizAnswerSubmitted, setQuizAnswerSubmitted] = useState(false);
   const [quizAnswerCorrect, setQuizAnswerCorrect] = useState<boolean | null>(null);
 
-  const persist = (nextEntries: Entry[]) => {
+  const persist = (nextEntries: Entry[], nextGroups = groups) => {
     setEntries(nextEntries);
+    setGroups(nextGroups);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextEntries));
+      window.localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(nextGroups));
     }
-    if (isAuthenticated) {
-      replaceVocabulary.mutate({ entries: nextEntries });
-    }
+    if (isAuthenticated) replaceVocabulary.mutate({ entries: nextEntries, groups: nextGroups });
   };
 
   useEffect(() => {
     if (!isAuthenticated || vocabularyQuery.isLoading || vocabularyQuery.data === undefined || hasHydratedCloud.current) return;
     hasHydratedCloud.current = true;
-    const cloudEntries = vocabularyQuery.data.map((entry) => ({
+    const cloudEntries = vocabularyQuery.data.entries.map((entry) => ({
       id: entry.id,
       text: entry.text,
       kind: entry.kind as EntryKind,
@@ -275,15 +293,19 @@ export default function Home() {
       meaning: entry.meaning,
       createdAt: entry.createdAt,
       favorite: entry.favorite,
+      groupId: entry.groupId,
     }));
+    const cloudGroups = vocabularyQuery.data.groups.map((group) => ({ id: group.id, name: group.name, note: group.note, createdAt: group.createdAt }));
+    setGroups(cloudGroups);
+    window.localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(cloudGroups));
     if (cloudEntries.length > 0) {
       setEntries(cloudEntries);
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudEntries));
       return;
     }
     // First login migration: preserve the user's existing browser collection.
-    if (entries.length > 0) replaceVocabulary.mutate({ entries });
-  }, [entries, isAuthenticated, replaceVocabulary, vocabularyQuery.data, vocabularyQuery.isLoading]);
+    if (entries.length > 0 || groups.length > 0) replaceVocabulary.mutate({ entries, groups });
+  }, [entries, groups, isAuthenticated, replaceVocabulary, vocabularyQuery.data, vocabularyQuery.isLoading]);
 
   const resetComposer = () => {
     setDraft("");
@@ -302,6 +324,7 @@ export default function Home() {
       meaning: chineseMeaning.trim(),
       createdAt: Date.now(),
       favorite: false,
+      groupId: activeGroupId,
     };
 
     persist([newEntry, ...entries]);
@@ -360,6 +383,27 @@ export default function Home() {
     if (nextKind === "Phrase") setPartOfSpeech("phrase");
     if (nextKind === "Sentence") setPartOfSpeech("sentence");
     if (nextKind === "Word" && (partOfSpeech === "phrase" || partOfSpeech === "sentence")) setPartOfSpeech("noun");
+  };
+
+  const saveGroup = () => {
+    const name = groupName.trim();
+    if (!name) { toast.error("請輸入群組名稱。"); return; }
+    const group: VocabularyGroup = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, name, note: groupNote.trim(), createdAt: Date.now() };
+    persist(entries, [...groups, group]);
+    setGroupName(""); setGroupNote(""); setGroupEditorOpen(false); setActiveGroupId(group.id);
+    toast.success(`已建立群組「${name}」`);
+  };
+
+  const applyGroupToEntry = (entryId: string, groupId: string) => {
+    persist(entries.map((entry) => entry.id === entryId ? { ...entry, groupId: groupId || null } : entry));
+  };
+
+  const removeGroup = (groupId: string) => {
+    const group = groups.find((item) => item.id === groupId);
+    const nextGroups = groups.filter((item) => item.id !== groupId);
+    persist(entries.map((entry) => entry.groupId === groupId ? { ...entry, groupId: null } : entry), nextGroups);
+    if (activeGroupId === groupId) setActiveGroupId(null);
+    toast.success(`已刪除群組「${group?.name ?? ""}」，英文內容仍保留`);
   };
 
   const handleDelete = (id: string) => {
@@ -468,9 +512,12 @@ export default function Home() {
         filter === "All" ||
         (filter === "Favorites" ? entry.favorite : entry.kind === filter);
       const matchesSearchFilter = matchesSelectedFilters(entry.partOfSpeech, searchFilters);
-      return (matchesEnglish || matchesMeaning) && matchesTabFilter && matchesSearchFilter;
+      const group = groups.find((item) => item.id === entry.groupId);
+      const matchesGroup = !activeGroupId || entry.groupId === activeGroupId;
+      const matchesGroupQuery = !groupQuery.trim() || group?.name.toLowerCase().includes(groupQuery.trim().toLowerCase());
+      return (matchesEnglish || matchesMeaning || matchesGroupQuery) && matchesTabFilter && matchesSearchFilter && matchesGroup;
     });
-  }, [entries, filter, query, searchFilters]);
+  }, [entries, filter, query, searchFilters, groups, activeGroupId, groupQuery]);
 
   const wordCount = entries.filter((entry) => entry.kind === "Word").length;
   const phraseCount = entries.filter((entry) => entry.kind !== "Word").length;
@@ -596,6 +643,14 @@ export default function Home() {
             </button>
             {quizExpanded && <div className="practice-body"><div className="practice-controls"><label>提示<select aria-label="抽背提示內容" value={quizMode} onChange={(event) => setQuizMode(event.target.value as QuizMode)}><option value="english">先看英文</option><option value="meaning">先看中文意思</option><option value="random">隨機出題</option></select></label><label>題數<select aria-label="抽背題數" value={quizCount} onChange={(event) => handleQuizCountChange(Number(event.target.value))}>{Array.from({ length: Math.max(1, Math.min(entries.length, MAX_QUIZ_COUNT)) }, (_, index) => index + 1).map((count) => <option value={count} key={count}>{count} 題</option>)}</select></label><button type="button" className="practice-button" onClick={drawQuizCard}><RefreshCw size={15} /> 開始抽背</button></div>{quizCard && <div className="quiz-card"><div className="quiz-progress">第 {quizQuestionIndex} / {quizCount} 題</div><div className="quiz-label">{quizCard.prompt === "english" ? "看英文，回想中文意思" : "看中文意思，回想英文"}</div><div className="quiz-prompt">{quizCard.prompt === "english" ? quizCard.entry.text : quizCard.entry.meaning}</div><div className="quiz-answer-input"><input aria-label="輸入抽背答案" value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitQuizAnswer(); }} placeholder={quizCard.prompt === "english" ? "輸入中文意思..." : "輸入英文答案..."} disabled={quizAnswerSubmitted} /><button type="button" onClick={submitQuizAnswer} disabled={quizAnswerSubmitted}>送出答案</button></div>{quizAnswerSubmitted && <div className={quizAnswerCorrect ? "quiz-match-result correct" : "quiz-match-result incorrect"}><Check size={15} /> {quizAnswerCorrect ? "意思相同或相似，答對了" : "意思不相符，已加入錯題"}</div>}{quizRevealed ? <><div className="quiz-answer"><span>參考答案</span>{quizCard.prompt === "english" ? quizCard.entry.meaning : quizCard.entry.text}</div>{!quizAnswerSubmitted && <div className="quiz-result-actions"><button type="button" className="quiz-result wrong" onClick={() => markQuizResult(false)}>答錯，加入錯題</button><button type="button" className="quiz-result right" onClick={() => markQuizResult(true)}>答對</button></div>}</> : <button type="button" className="reveal-button" onClick={() => setQuizRevealed(true)}><Eye size={15} /> 顯示答案</button>}<button type="button" className="next-quiz-button" onClick={drawQuizCard}>{quizQuestionIndex >= quizCount ? "重新開始" : "下一題"} <ArrowUpRight size={14} /></button></div>}{wrongQuizCards.length > 0 && <div className="wrong-quiz-list"><div className="wrong-list-heading"><span>本次錯題</span><strong>{wrongQuizCards.length} 題</strong></div>{wrongQuizCards.map((card) => <div className="wrong-quiz-item" key={`${card.entry.id}-${card.prompt}`}><span className="wrong-quiz-english">{card.entry.text}</span><span className="wrong-quiz-meaning">{card.entry.meaning}</span><button type="button" onClick={() => speak(card.entry.text)} aria-label={`播放 ${card.entry.text}`}><Play size={13} fill="currentColor" /></button></div>)}</div>}</div>}
           </div>
+          <div className="group-bar">
+            <div className="group-heading"><span className="group-icon"><Library size={15} /></span><span><strong>英文群組</strong><small>為收藏建立主題與備註</small></span></div>
+            <select className="group-select" aria-label="選擇英文群組" value={activeGroupId ?? ""} onChange={(event) => { setActiveGroupId(event.target.value || null); setGroupQuery(""); }}><option value="">全部群組</option>{groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select>
+            <input className="group-search" aria-label="搜尋群組名稱" value={groupQuery} onChange={(event) => { setGroupQuery(event.target.value); setActiveGroupId(null); }} placeholder="搜尋群組名稱..." />
+            <button type="button" className="group-add-button" onClick={() => setGroupEditorOpen((open) => !open)}><Plus size={14} /> 新增群組</button>
+          </div>
+          {groupEditorOpen && <div className="group-editor"><input aria-label="群組名稱" value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="例如：多益單字、旅行英文" /><textarea aria-label="群組文字" value={groupNote} onChange={(event) => setGroupNote(event.target.value)} placeholder="輸入這組英文的說明或學習目標（可選）" rows={2} /><button type="button" className="save-button" onClick={saveGroup}>保存群組 <Check size={15} /></button></div>}
+          {activeGroupId && <div className="active-group-note"><span><strong>目前顯示：{groups.find((group) => group.id === activeGroupId)?.name}</strong>{groups.find((group) => group.id === activeGroupId)?.note && <small> · {groups.find((group) => group.id === activeGroupId)?.note}</small>}</span><span><button type="button" onClick={() => removeGroup(activeGroupId)}>刪除群組</button><button type="button" onClick={() => setActiveGroupId(null)}>顯示全部</button></span></div>}
           <div className="toolbar">
             <div className="search-wrap"><Search size={17} /><input aria-label="搜尋英文或中文意思" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search English or 中文意思..." />{query && <button type="button" className="clear-search" onClick={() => setQuery("")} aria-label="清除搜尋">×</button>}</div>
             <div className="filter-tabs" role="tablist" aria-label="收藏篩選">
@@ -617,9 +672,9 @@ export default function Home() {
                 <article className="entry-card" key={entry.id} style={{ "--entry-delay": `${index * 45}ms` } as React.CSSProperties}>
                   <button type="button" className="entry-copy" onClick={() => speak(entry.text)} aria-label={`播放 ${entry.text} 的英文發音`}>
                     <span className="entry-index">{String(index + 1).padStart(2, "0")}</span>
-                    <span className="entry-content"><span className="entry-text">{entry.text}</span><span className="entry-meaning">{entry.meaning || "尚未添加中文意思"}</span><span className="entry-meta"><span className={`kind-label kind-${entry.kind.toLowerCase()}`}>{entry.kind}</span><span>·</span><span className="pos-label">{pos?.label ?? "其他"} · {pos?.short ?? "Other"}</span><span>·</span><span>{formatDate(entry.createdAt)}</span></span></span>
+                    <span className="entry-content"><span className="entry-text">{entry.text}</span><span className="entry-meaning">{entry.meaning || "尚未添加中文意思"}</span><span className="entry-meta"><span className={`kind-label kind-${entry.kind.toLowerCase()}`}>{entry.kind}</span><span>·</span><span className="pos-label">{pos?.label ?? "其他"} · {pos?.short ?? "Other"}</span>{entry.groupId && <><span>·</span><span className="group-label">{groups.find((group) => group.id === entry.groupId)?.name ?? "群組"}</span></>}<span>·</span><span>{formatDate(entry.createdAt)}</span></span></span>
                   </button>
-                  <div className="entry-actions"><button type="button" className="icon-button play-button" onClick={() => speak(entry.text)} aria-label={`播放 ${entry.text}`}><Play size={15} fill="currentColor" /></button><button type="button" className="icon-button edit-button" onClick={() => startEditing(entry)} aria-label={`編輯 ${entry.text}`}><Pencil size={15} /></button><button type="button" className={entry.favorite ? "icon-button favorite-button active" : "icon-button favorite-button"} onClick={() => toggleFavorite(entry.id)} aria-label={entry.favorite ? "取消最愛" : "加入最愛"}><Heart size={17} fill={entry.favorite ? "currentColor" : "none"} /></button><button type="button" className="icon-button delete-button" onClick={() => handleDelete(entry.id)} aria-label={`刪除 ${entry.text}`}><Trash2 size={16} /></button></div>
+                  <div className="entry-actions"><button type="button" className="icon-button play-button" onClick={() => speak(entry.text)} aria-label={`播放 ${entry.text}`}><Play size={15} fill="currentColor" /></button><select className="entry-group-select" aria-label={`設定 ${entry.text} 的群組`} value={entry.groupId ?? ""} onChange={(event) => applyGroupToEntry(entry.id, event.target.value)}><option value="">未分組</option>{groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><button type="button" className="icon-button edit-button" onClick={() => startEditing(entry)} aria-label={`編輯 ${entry.text}`}><Pencil size={15} /></button><button type="button" className={entry.favorite ? "icon-button favorite-button active" : "icon-button favorite-button"} onClick={() => toggleFavorite(entry.id)} aria-label={entry.favorite ? "取消最愛" : "加入最愛"}><Heart size={17} fill={entry.favorite ? "currentColor" : "none"} /></button><button type="button" className="icon-button delete-button" onClick={() => handleDelete(entry.id)} aria-label={`刪除 ${entry.text}`}><Trash2 size={16} /></button></div>
                 </article>
               );
             })}
